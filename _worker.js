@@ -49,6 +49,8 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Micr
 .msg.theirs{align-self:flex-start;align-items:flex-start;}
 .msg.theirs .bubble{background:#fff;}
 .msg.theirs .meta{color:#888;}
+.btn-del{display:inline;background:#e74c3c;color:#fff;border:none;border-radius:10px;padding:1px 8px;font-size:11px;cursor:pointer;margin-left:6px;vertical-align:middle;opacity:.85;}
+.btn-del:hover{opacity:1;}
 
 .chat-input{background:#f7f7f7;border-top:1px solid #e2e2e2;padding:10px 12px;display:flex;align-items:flex-end;gap:8px;flex-shrink:0;}
 .chat-input .attach{display:flex;gap:6px;flex-shrink:0;}
@@ -289,6 +291,19 @@ function renderMsg(m){
   var hh = ("0"+t.getHours()).slice(-2);
   var mm = ("0"+t.getMinutes()).slice(-2);
   meta.textContent = (m.name === name ? "我" : m.name) + "  " + hh + ":" + mm;
+  if(m.name === name){
+    var del = document.createElement("button");
+    del.className = "btn-del";
+    del.textContent = "撤回";
+    del.onclick = async function(){
+      try{
+        var r = await fetch("/api/delete", {method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({token: token, id: m.id})});
+        var d = await r.json();
+        if(d.ok){ box.remove(); } else { alert(d.error || "撤回失败"); }
+      }catch(e){ alert("网络错误"); }
+    };
+    meta.appendChild(del);
+  }
   var bubble = document.createElement("div");
   bubble.className = "bubble";
   if(m.type === "text"){
@@ -440,6 +455,22 @@ async function apiSend(request, env){
   return json({ok:false, error:"消息类型不支持"});
 }
 
+async function apiDelete(request, env){
+  const body = await request.json();
+  const nm = await tokenName(body.token, env);
+  if(!nm) return json({ok:false, error:"登录已失效，请重新登录"});
+  const id = parseInt(body.id, 10);
+  if(!id) return json({ok:false, error:"参数错误"});
+  const row = await env.DB.prepare("SELECT name, media FROM messages WHERE id = ?").bind(id).first();
+  if(!row) return json({ok:false, error:"消息不存在"});
+  if(row.name !== nm) return json({ok:false, error:"只能撤回自己的消息"});
+  if(row.media){
+    await env.DB.prepare("DELETE FROM media WHERE id = ?").bind(row.media).run();
+  }
+  await env.DB.prepare("DELETE FROM messages WHERE id = ?").bind(id).run();
+  return json({ok:true});
+}
+
 async function apiMessages(url, env){
   const after = parseInt(url.searchParams.get("after") || "0", 10);
   const rows = await env.DB.prepare(
@@ -479,6 +510,7 @@ export default {
       if(path === "/api/register" && request.method === "POST") return await apiRegister(request, env);
       if(path === "/api/login" && request.method === "POST") return await apiLogin(request, env);
       if(path === "/api/send" && request.method === "POST") return await apiSend(request, env);
+      if(path === "/api/delete" && request.method === "POST") return await apiDelete(request, env);
       if(path === "/api/messages" && request.method === "GET") return await apiMessages(url, env);
       if(path === "/api/media" && request.method === "GET") return await apiMedia(url, env);
       if(path === "/api/me" && request.method === "GET") return await apiMe(url, env);
