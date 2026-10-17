@@ -291,7 +291,7 @@ function renderMsg(m){
   var bubble = document.createElement("div");
   bubble.className = "bubble";
   if(m.type === "text"){
-    bubble.textContent = m.text || "";
+    bubble.textContent = m.content || "";
   }else if(m.type === "image"){
     var img = document.createElement("img");
     bubble.appendChild(img);
@@ -363,32 +363,10 @@ async function tokenName(token, env){
 
 // 建表（幂等，每次请求前确保表存在）
 async function ensureTables(env){
-  await env.DB.exec(`
-    CREATE TABLE IF NOT EXISTS users (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      name TEXT UNIQUE NOT NULL,
-      salt TEXT NOT NULL,
-      hash TEXT NOT NULL
-    );
-    CREATE TABLE IF NOT EXISTS tokens (
-      token TEXT PRIMARY KEY,
-      name TEXT NOT NULL,
-      created INTEGER
-    );
-    CREATE TABLE IF NOT EXISTS messages (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      name TEXT NOT NULL,
-      type TEXT NOT NULL,
-      text TEXT,
-      media TEXT,
-      time INTEGER NOT NULL
-    );
-    CREATE TABLE IF NOT EXISTS media (
-      id TEXT PRIMARY KEY,
-      data TEXT NOT NULL,
-      time INTEGER NOT NULL
-    );
-  `);
+  await env.DB.prepare("CREATE TABLE IF NOT EXISTS users (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT UNIQUE NOT NULL, salt TEXT NOT NULL, hash TEXT NOT NULL)").run();
+  await env.DB.prepare("CREATE TABLE IF NOT EXISTS tokens (token TEXT PRIMARY KEY, name TEXT NOT NULL, created INTEGER)").run();
+  await env.DB.prepare("CREATE TABLE IF NOT EXISTS messages (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, type TEXT NOT NULL, content TEXT, media TEXT, time INTEGER NOT NULL)").run();
+  await env.DB.prepare("CREATE TABLE IF NOT EXISTS media (id TEXT PRIMARY KEY, data TEXT NOT NULL, time INTEGER NOT NULL)").run();
 }
 
 // ============================================================
@@ -438,7 +416,7 @@ async function apiSend(request, env){
     const text = (body.content || "").trim();
     if(!text) return json({ok:false, error:"不能发空消息"});
     if(text.length > 2000) return json({ok:false, error:"消息太长（最多2000字）"});
-    const r = await env.DB.prepare("INSERT INTO messages (name, type, text, time) VALUES (?, 'text', ?, ?)")
+    const r = await env.DB.prepare("INSERT INTO messages (name, type, content, time) VALUES (?, 'text', ?, ?)")
       .bind(nm, text, Date.now()).run();
     return json({ok:true, id: r.meta.last_row_id});
   }
@@ -464,7 +442,7 @@ async function apiSend(request, env){
 async function apiMessages(url, env){
   const after = parseInt(url.searchParams.get("after") || "0", 10);
   const rows = await env.DB.prepare(
-    "SELECT id, name, type, text, media, time FROM messages WHERE id > ? ORDER BY id ASC LIMIT 100"
+    "SELECT id, name, type, content, media, time FROM messages WHERE id > ? ORDER BY id ASC LIMIT 100"
   ).bind(after).all();
   return json({ok:true, msgs: rows.results});
 }
